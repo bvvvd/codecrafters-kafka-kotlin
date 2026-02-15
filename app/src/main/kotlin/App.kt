@@ -10,20 +10,37 @@ fun main() {
             client.getInputStream().use { inputStream ->
                 inputStream.skipNBytes(6)
                 val apiVersion = inputStream.readNBytes(2)
-                val errorCode = if (apiVersion[0] != 0x00.toByte() || apiVersion[1] > 0x04.toByte()) {
-                    byteArrayOf(0x00, 0x23)
-                } else {
-                    byteArrayOf(0x00, 0x00)
-                }
                 val rawCorrelationId = inputStream.readNBytes(4)
-
-                client.getOutputStream().use { outputStream ->
-                    val output = byteArrayOf(0x00, 0x00, 0x00, 0x00)
+                val output = if (apiVersion[0] != 0x00.toByte() || apiVersion[1] > 0x04.toByte()) {
+                    byteArrayOf(0x00, 0x00, 0x00, 0x00)
                         .plus(rawCorrelationId)
-                        .plus(errorCode)
-
-                    outputStream.write(output)
+                        .plus(byteArrayOf(0x00, 0x23))
+                } else {
+                    byteArrayOf(0x00, 0x00, 0x00, 0x13)
+                        .plus(rawCorrelationId)
+                        .plus(
+                            byteArrayOf(
+                                0x00,
+                                0x00,
+                                0x02,
+                                0x00,
+                                0x12,
+                                0x00,
+                                0x00,
+                                0x00,
+                                0x04,
+                                0x00,
+                                0x00,
+                                0x00,
+                                0x00,
+                                0x00,
+                                0x00
+                            )
+                        )
                 }
+
+                client.getOutputStream().use { outputStream -> outputStream.write(output) }
+
             }
         }
 }
