@@ -5,12 +5,12 @@ fun main(args: Array<String>) {
     System.err.println("Logs from your program will appear here!")
 
     // TODO: Uncomment the code below to pass the first stage
-    // var serverSocket = ServerSocket(9092)
+     var serverSocket = ServerSocket(9092)
     //
     // // Since the tester restarts your program quite often, setting SO_REUSEADDR
     // // ensures that we don't run into 'Address already in use' errors
-    // serverSocket.reuseAddress = true
+     serverSocket.reuseAddress = true
     //
-    // serverSocket.accept() // Wait for connection from client.
+     serverSocket.accept() // Wait for connection from client.
     // println("accepted new connection")
 }
