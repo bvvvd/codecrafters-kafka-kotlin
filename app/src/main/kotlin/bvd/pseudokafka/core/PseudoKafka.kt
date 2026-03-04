@@ -1,9 +1,8 @@
 package bvd.pseudokafka.core
 
+import bvd.pseudokafka.core.KafkaResponse.*
 import bvd.pseudokafka.utils.debug
-import bvd.pseudokafka.core.KafkaResponse.ApiVersion
-import bvd.pseudokafka.core.KafkaResponse.ApiVersionsResponse
-import bvd.pseudokafka.core.KafkaResponse.ErrorResponse
+import java.io.File
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.SelectionKey
@@ -17,12 +16,18 @@ class PseudoKafka {
     private val serverChannel: ServerSocketChannel = ServerSocketChannel.open()
     private val servingClients: MutableSet<SocketChannel> = mutableSetOf()
     private val buffer: ByteBuffer
+    private val clusterMetadataLog: File
 
-    constructor(bufferSize: Int = 1024 * 1024) {
+    constructor(
+        bufferSize: Int = 1024 * 1024,
+        clusterMetadataLog: File = File("/tmp/kraft-combined-logs/__cluster_metadata-0/00000000000000000000.log")
+    ) {
         serverChannel.configureBlocking(false)
         serverChannel.bind(InetSocketAddress("127.0.0.1", 9092))
         serverChannel.register(selector, SelectionKey.OP_ACCEPT)
         buffer = ByteBuffer.allocate(bufferSize)
+        this.clusterMetadataLog = clusterMetadataLog
+            debug("file content: %s", clusterMetadataLog.readText())
     }
 
     fun start() {
@@ -115,14 +120,15 @@ class PseudoKafka {
                 ),
             )
 
-            KafkaResponse.DESCRIBE_TOPIC_PARTITIONS_KEY -> KafkaResponse.DescribeTopicPartitionsResponse(
+            KafkaResponse.DESCRIBE_TOPIC_PARTITIONS_KEY -> DescribeTopicPartitionsResponse(
                 correlationId = read.correlationId,
                 topicPartitions = listOf(
-                    KafkaResponse.DescribeTopicPartitionsResponse.TopicPartition(
-                        topicName = read.topicName ?: "default-topic",
+                    DescribeTopicPartitionsResponse.TopicPartition(
+                        topicName = read.topicName ?: "unknown topic",
                     )
                 )
             )
+
             else -> ErrorResponse(read.correlationId)
         }
     }
