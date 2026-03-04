@@ -1,6 +1,7 @@
 package bvd.pseudokafka.core
 
 import java.nio.ByteBuffer
+import java.util.UUID
 
 sealed interface KafkaResponse {
     fun toByteBuffer(): ByteBuffer
@@ -52,18 +53,45 @@ sealed interface KafkaResponse {
         data class TopicPartition(
             val topicName: String,
             val errorCode: Short = UNKNOWN_TOPIC_OR_PARTITION_ERROR_CODE,
+            val topicId: UUID = ZERO_UUID,
+            val partitions: List<PartitionMetadata> = emptyList(),
+        )
+
+        data class PartitionMetadata(
+            val errorCode: Short = NO_ERROR_CODE,
+            val partitionIndex: Int,
+            val leaderId: Int,
+            val leaderEpoch: Int = 0,
+            val replicaNodes: List<Int>,
+            val isrNodes: List<Int>,
+            val eligibleLeaderReplicas: List<Int> = emptyList(),
+            val lastKnownElr: List<Int> = emptyList(),
+            val offlineReplicas: List<Int> = emptyList(),
         )
 
         override fun toByteBuffer(): ByteBuffer {
-            val body = ByteBuffer.allocate(128)
+            val body = ByteBuffer.allocate(16 * 1024)
             body.putInt(0)
             writeUnsignedVarInt(body, topicPartitions.size + 1)
             topicPartitions.forEach { topicPartition ->
                 body.putShort(topicPartition.errorCode)
                 writeCompactString(body, topicPartition.topicName)
-                repeat(16) { body.put(0) }
+                body.putLong(topicPartition.topicId.mostSignificantBits)
+                body.putLong(topicPartition.topicId.leastSignificantBits)
                 body.put(0)
-                writeUnsignedVarInt(body, 1)
+                writeUnsignedVarInt(body, topicPartition.partitions.size + 1)
+                topicPartition.partitions.forEach { partition ->
+                    body.putShort(partition.errorCode)
+                    body.putInt(partition.partitionIndex)
+                    body.putInt(partition.leaderId)
+                    body.putInt(partition.leaderEpoch)
+                    writeCompactIntArray(body, partition.replicaNodes)
+                    writeCompactIntArray(body, partition.isrNodes)
+                    writeCompactIntArray(body, partition.eligibleLeaderReplicas)
+                    writeCompactIntArray(body, partition.lastKnownElr)
+                    writeCompactIntArray(body, partition.offlineReplicas)
+                    body.put(NO_TAGGED_FIELDS)
+                }
                 body.putInt(0)
                 body.put(NO_TAGGED_FIELDS)
             }
@@ -97,11 +125,17 @@ sealed interface KafkaResponse {
         const val UNKNOWN_TOPIC_OR_PARTITION_ERROR_CODE: Short = 3
         const val NO_TAGGED_FIELDS: Byte = 0
         const val NULL_CURSOR: Byte = -1
+        val ZERO_UUID: UUID = UUID(0L, 0L)
 
         private fun writeCompactString(buffer: ByteBuffer, value: String) {
             val bytes = value.toByteArray()
             writeUnsignedVarInt(buffer, bytes.size + 1)
             buffer.put(bytes)
+        }
+
+        private fun writeCompactIntArray(buffer: ByteBuffer, values: List<Int>) {
+            writeUnsignedVarInt(buffer, values.size + 1)
+            values.forEach { value -> buffer.putInt(value) }
         }
 
         private fun writeUnsignedVarInt(buffer: ByteBuffer, value: Int) {

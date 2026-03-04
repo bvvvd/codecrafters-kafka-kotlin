@@ -2,7 +2,6 @@ package bvd.pseudokafka.core
 
 import bvd.pseudokafka.core.KafkaResponse.*
 import bvd.pseudokafka.utils.debug
-import java.io.File
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.SelectionKey
@@ -16,18 +15,17 @@ class PseudoKafka {
     private val serverChannel: ServerSocketChannel = ServerSocketChannel.open()
     private val servingClients: MutableSet<SocketChannel> = mutableSetOf()
     private val buffer: ByteBuffer
-    private val clusterMetadataLog: File
+    private val clusterMetadataLog: ClusterMetadataLog
 
     constructor(
         bufferSize: Int = 1024 * 1024,
-        clusterMetadataLog: File = File("/tmp/kraft-combined-logs/__cluster_metadata-0/00000000000000000000.log")
+        clusterMetadataLog: ClusterMetadataLog = ClusterMetadataLog()
     ) {
         serverChannel.configureBlocking(false)
         serverChannel.bind(InetSocketAddress("127.0.0.1", 9092))
         serverChannel.register(selector, SelectionKey.OP_ACCEPT)
         buffer = ByteBuffer.allocate(bufferSize)
         this.clusterMetadataLog = clusterMetadataLog
-            debug("file content: %s", clusterMetadataLog.readText())
     }
 
     fun start() {
@@ -120,14 +118,37 @@ class PseudoKafka {
                 ),
             )
 
-            KafkaResponse.DESCRIBE_TOPIC_PARTITIONS_KEY -> DescribeTopicPartitionsResponse(
-                correlationId = read.correlationId,
-                topicPartitions = listOf(
-                    DescribeTopicPartitionsResponse.TopicPartition(
-                        topicName = read.topicName ?: "unknown topic",
+            KafkaResponse.DESCRIBE_TOPIC_PARTITIONS_KEY -> {
+                val topicName = read.topicName ?: ""
+                val topicMetadata = clusterMetadataLog.topicMetadata(topicName)
+                val topicId = topicMetadata?.topicId
+                DescribeTopicPartitionsResponse(
+                    correlationId = read.correlationId,
+                    topicPartitions = listOf(
+                        DescribeTopicPartitionsResponse.TopicPartition(
+                            topicName = topicName,
+                            errorCode = if (topicId == null) {
+                                KafkaResponse.UNKNOWN_TOPIC_OR_PARTITION_ERROR_CODE
+                            } else {
+                                KafkaResponse.NO_ERROR_CODE
+                            },
+                            topicId = topicId ?: KafkaResponse.ZERO_UUID,
+                            partitions = topicMetadata
+                                ?.partitions
+                                ?.map { partition ->
+                                    DescribeTopicPartitionsResponse.PartitionMetadata(
+                                        partitionIndex = partition.partitionIndex,
+                                        leaderId = partition.leaderId,
+                                        leaderEpoch = partition.leaderEpoch,
+                                        replicaNodes = partition.replicaNodes,
+                                        isrNodes = partition.isrNodes,
+                                    )
+                                }
+                                ?: emptyList(),
+                        )
                     )
                 )
-            )
+            }
 
             else -> ErrorResponse(read.correlationId)
         }
