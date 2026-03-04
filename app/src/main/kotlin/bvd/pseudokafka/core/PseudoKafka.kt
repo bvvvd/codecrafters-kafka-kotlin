@@ -125,10 +125,11 @@ class PseudoKafka {
                     listOf(read.topicName ?: "")
                 }
                 val metadata = clusterMetadataLog.readMetadata(requestedTopicNames)
+                val sortedTopicNames = requestedTopicNames.sorted()
 
                 DescribeTopicPartitionsResponse(
                     correlationId = read.correlationId,
-                    topicPartitions = requestedTopicNames.map { topicName ->
+                    topicPartitions = sortedTopicNames.map { topicName ->
                         val topicMetadata = metadata.topic(topicName)
                         val topicId = topicMetadata?.topicId
                         DescribeTopicPartitionsResponse.TopicPartition(
