@@ -71,36 +71,18 @@ class PseudoKafka {
         }
         buffer.flip()
 
-        repeat(6) { buffer.get() }
-        val apiVersion = ByteArray(2).also { buffer.get(it) }
-        val rawCorrelationId = ByteArray(4).also { buffer.get(it) }
+        buffer.int
+        val apiKey = buffer.short
+        val apiVersion = buffer.short
+        val correlationId = buffer.int
 
-        val output = if (apiVersion[0] != 0x00.toByte() || apiVersion[1] > 0x04.toByte()) {
-            byteArrayOf(0x00, 0x00, 0x00, 0x00)
-                .plus(rawCorrelationId)
-                .plus(byteArrayOf(0x00, 0x23))
+        val output = if (apiVersion !in MIN_API_VERSION..MAX_API_VERSION) {
+            buildErrorResponse(correlationId)
         } else {
-            byteArrayOf(0x00, 0x00, 0x00, 0x13)
-                .plus(rawCorrelationId)
-                .plus(
-                    byteArrayOf(
-                        0x00,
-                        0x00,
-                        0x02,
-                        0x00,
-                        0x12,
-                        0x00,
-                        0x00,
-                        0x00,
-                        0x04,
-                        0x00,
-                        0x00,
-                        0x00,
-                        0x00,
-                        0x00,
-                        0x00
-                    )
-                )
+            when (apiKey) {
+                API_VERSIONS_KEY -> buildApiVersionsResponse(correlationId)
+                else -> buildErrorResponse(correlationId)
+            }
         }
 
         val writeBuf = ByteBuffer.wrap(output)
@@ -137,4 +119,63 @@ class PseudoKafka {
     }
 
     private data class ClientState(val key: SelectionKey, val pendingWrites: Queue<ByteBuffer> = ArrayDeque())
+
+    private fun buildErrorResponse(correlationId: Int): ByteArray {
+        val response = ByteBuffer.allocate(10)
+        response.putInt(6)
+        response.putInt(correlationId)
+        response.putShort(UNSUPPORTED_VERSION_ERROR_CODE)
+        return response.array()
+    }
+
+    private fun buildApiVersionsResponse(correlationId: Int): ByteArray {
+        val supportedApis = listOf(
+            ApiVersion(API_VERSIONS_KEY, MIN_API_VERSION, MAX_API_VERSION),
+            ApiVersion(DESCRIBE_TOPIC_PARTITIONS_KEY, 0, 0)
+        )
+
+        val body = ByteBuffer.allocate(64)
+        body.putShort(NO_ERROR_CODE)
+        writeUnsignedVarInt(body, supportedApis.size + 1)
+        supportedApis.forEach { api ->
+            body.putShort(api.apiKey)
+            body.putShort(api.minVersion)
+            body.putShort(api.maxVersion)
+            body.put(NO_TAGGED_FIELDS)
+        }
+        body.putInt(0)
+        body.put(NO_TAGGED_FIELDS)
+
+        val bodyLength = body.position()
+        val response = ByteBuffer.allocate(4 + 4 + bodyLength)
+        response.putInt(4 + bodyLength)
+        response.putInt(correlationId)
+        response.put(body.array(), 0, bodyLength)
+        return response.array()
+    }
+
+    private fun writeUnsignedVarInt(buffer: ByteBuffer, value: Int) {
+        var current = value
+        while (true) {
+            if ((current and 0x7F.inv()) == 0) {
+                buffer.put(current.toByte())
+                return
+            }
+
+            buffer.put(((current and 0x7F) or 0x80).toByte())
+            current = current ushr 7
+        }
+    }
+
+    private data class ApiVersion(val apiKey: Short, val minVersion: Short, val maxVersion: Short)
+
+    private companion object {
+        const val API_VERSIONS_KEY: Short = 18
+        const val DESCRIBE_TOPIC_PARTITIONS_KEY: Short = 75
+        const val MIN_API_VERSION: Short = 0
+        const val MAX_API_VERSION: Short = 4
+        const val NO_ERROR_CODE: Short = 0
+        const val UNSUPPORTED_VERSION_ERROR_CODE: Short = 35
+        const val NO_TAGGED_FIELDS: Byte = 0
+    }
 }
