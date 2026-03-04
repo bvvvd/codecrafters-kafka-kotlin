@@ -119,12 +119,18 @@ class PseudoKafka {
             )
 
             KafkaResponse.DESCRIBE_TOPIC_PARTITIONS_KEY -> {
-                val topicName = read.topicName ?: ""
-                val topicMetadata = clusterMetadataLog.topicMetadata(topicName)
-                val topicId = topicMetadata?.topicId
+                val requestedTopicNames = if (read.topicNames.isNotEmpty()) {
+                    read.topicNames
+                } else {
+                    listOf(read.topicName ?: "")
+                }
+                val metadata = clusterMetadataLog.readMetadata(requestedTopicNames)
+
                 DescribeTopicPartitionsResponse(
                     correlationId = read.correlationId,
-                    topicPartitions = listOf(
+                    topicPartitions = requestedTopicNames.map { topicName ->
+                        val topicMetadata = metadata.topic(topicName)
+                        val topicId = topicMetadata?.topicId
                         DescribeTopicPartitionsResponse.TopicPartition(
                             topicName = topicName,
                             errorCode = if (topicId == null) {
@@ -146,7 +152,7 @@ class PseudoKafka {
                                 }
                                 ?: emptyList(),
                         )
-                    )
+                    }
                 )
             }
 

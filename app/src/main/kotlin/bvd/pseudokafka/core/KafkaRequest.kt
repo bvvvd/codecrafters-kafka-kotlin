@@ -8,6 +8,7 @@ data class KafkaRequest(
     val apiVersion: Short,
     val correlationId: Int,
     val topicName: String? = null,
+    val topicNames: List<String> = emptyList(),
 ) {
     companion object {
         fun from(buffer: ByteBuffer): KafkaRequest {
@@ -15,19 +16,21 @@ data class KafkaRequest(
             val apiKey = buffer.short
             val apiVersion = buffer.short
             val correlationId = buffer.int
+            val topicNames = extractTopicNames(buffer, apiKey)
 
             return KafkaRequest(
                 messageSize = messageSize,
                 apiKey = apiKey,
                 apiVersion = apiVersion,
                 correlationId = correlationId,
-                topicName = extractTopicName(buffer, apiKey),
+                topicName = topicNames.firstOrNull(),
+                topicNames = topicNames,
             )
         }
 
-        private fun extractTopicName(buffer: ByteBuffer, apiKey: Short): String? {
+        private fun extractTopicNames(buffer: ByteBuffer, apiKey: Short): List<String> {
             if (apiKey != KafkaResponse.DESCRIBE_TOPIC_PARTITIONS_KEY || !buffer.hasRemaining()) {
-                return null
+                return emptyList()
             }
 
             val requestBuffer = buffer.slice()
@@ -36,12 +39,19 @@ data class KafkaRequest(
 
             val topicCount = readUnsignedVarInt(requestBuffer) - 1
             if (topicCount <= 0) {
-                return null
+                return emptyList()
             }
 
-            val topicName = readCompactString(requestBuffer)
-            skipTaggedFields(requestBuffer)
-            return topicName
+            val topics = mutableListOf<String>()
+            repeat(topicCount) {
+                val topicName = readCompactString(requestBuffer)
+                skipTaggedFields(requestBuffer)
+                if (!topicName.isNullOrEmpty()) {
+                    topics.add(topicName)
+                }
+            }
+
+            return topics
         }
 
         private fun skipNullableString(buffer: ByteBuffer) {
